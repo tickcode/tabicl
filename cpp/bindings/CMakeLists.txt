@@ -1,0 +1,4 @@
+find_package(pybind11 CONFIG REQUIRED)
+pybind11_add_module(tabicl_cpp_testing pybind_module.cpp)
+target_link_libraries(tabicl_cpp_testing PRIVATE tabicl_cpp)
+tabicl_set_warnings(tabicl_cpp_testing)

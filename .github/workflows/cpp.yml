@@ -1,0 +1,98 @@
+name: cpp
+
+on:
+  push:
+    branches: [main]
+    paths: ["cpp/**", "scripts/export_gguf.py", "tools/generate_fixtures.py",
+            "tests/test_cpp_parity.py", ".github/workflows/cpp.yml"]
+  pull_request:
+    paths: ["cpp/**", "scripts/export_gguf.py", "tools/generate_fixtures.py",
+            "tests/test_cpp_parity.py", ".github/workflows/cpp.yml"]
+  workflow_dispatch:
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache HF checkpoints
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-tabicl-v2-ckpts
+      - name: Install
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e . gguf
+      - name: Download checkpoints and export GGUF
+        run: |
+          python - <<'EOF'
+          from huggingface_hub import hf_hub_download
+          for f in ["tabicl-classifier-v2-20260212.ckpt", "tabicl-regressor-v2-20260212.ckpt"]:
+              print(hf_hub_download("jingang/TabICL", f))
+          EOF
+          CLF=$(find ~/.cache/huggingface -name "tabicl-classifier-v2-*.ckpt" | head -1)
+          REG=$(find ~/.cache/huggingface -name "tabicl-regressor-v2-*.ckpt" | head -1)
+          mkdir -p cpp/tests/fixtures
+          python scripts/export_gguf.py "$CLF" cpp/tests/fixtures/tabicl-classifier-v2.gguf
+          python scripts/export_gguf.py "$REG" cpp/tests/fixtures/tabicl-regressor-v2.gguf
+      - name: Generate golden fixtures
+        run: python tools/generate_fixtures.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fixtures
+          path: cpp/tests/fixtures
+          retention-days: 3
+
+  build-and-test:
+    needs: fixtures
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sanitize: [OFF, ON]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          name: fixtures
+          path: cpp/tests/fixtures
+      - name: Configure
+        run: |
+          cmake -B cpp/build -S cpp -DCMAKE_BUILD_TYPE=Release \
+                -DTABICL_CPU_ARCH=x86-64-v3 -DTABICL_SANITIZE=${{ matrix.sanitize }}
+      - name: Build
+        run: cmake --build cpp/build -j "$(nproc)"
+      - name: Test
+        run: ctest --test-dir cpp/build --output-on-failure
+
+  pytest-parity:
+    needs: fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: fixtures
+          path: cpp/tests/fixtures
+      - name: Install
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e . pybind11 pytest
+      - name: Build bindings
+        run: |
+          cmake -B cpp/build -S cpp -DCMAKE_BUILD_TYPE=Release \
+                -DTABICL_CPU_ARCH=x86-64-v3 -DTABICL_BUILD_TESTS=OFF \
+                -DTABICL_BUILD_PYBIND=ON -Dpybind11_DIR="$(python -m pybind11 --cmakedir)"
+          cmake --build cpp/build -j "$(nproc)"
+      - name: Parity tests
+        run: python -m pytest tests/test_cpp_parity.py -v

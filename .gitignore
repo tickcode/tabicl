@@ -145,3 +145,7 @@ papers/
 CLAUDE.md
 ckpts/
 src_private/
+
+# C++ library
+cpp/build*/
+cpp/tests/fixtures/

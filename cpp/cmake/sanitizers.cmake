@@ -1,0 +1,6 @@
+function(tabicl_set_sanitizers target)
+  if(TABICL_SANITIZE AND NOT MSVC)
+    target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+  endif()
+endfunction()
