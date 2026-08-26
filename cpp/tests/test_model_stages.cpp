@@ -67,12 +67,13 @@ void run_task(const std::string& task, const std::string& gguf) {
                                          : model->config().num_quantiles;
   const int64_t out_dim = logits_ref.shape[2];
   const int64_t test = T - train;
+  // icl_forward returns the test rows only; slice classes.
   std::vector<float> sliced(static_cast<size_t>(B * test * out_dim));
   for (int64_t b = 0; b < B; ++b)
     for (int64_t t = 0; t < test; ++t)
       for (int64_t k = 0; k < out_dim; ++k)
         sliced[static_cast<size_t>((b * test + t) * out_dim + k)] =
-            raw[static_cast<size_t>((b * T + train + t) * full_out + k)];
+            raw[static_cast<size_t>((b * test + t) * full_out + k)];
   compare(sliced.data(), logits_ref.f4(), logits_ref.numel(), 5e-4, 1e-4,
           task + "/icl_logits");
 

@@ -28,6 +28,8 @@ struct EstimatorOptions {
   int n_threads = 0;
   float softmax_temperature = 0.9f;
   bool average_logits = true;  // classifier only
+  // Peak per-graph scratch budget; see ForwardOptions.max_scratch_bytes.
+  int64_t max_scratch_bytes = int64_t(1) << 30;
 };
 
 class EstimatorCore {

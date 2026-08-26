@@ -27,6 +27,11 @@ Supported (parity-tested against the Python implementation):
   `predict` calls
 - v2 checkpoints (classifier + regressor), converted to GGUF via
   `scripts/export_gguf.py`
+- Memory-bounded execution: attention and activations are chunked along
+  embarrassingly-parallel axes under a configurable scratch budget
+  (`EstimatorOptions::max_scratch_bytes`, default 1 GiB). Results are
+  **bitwise identical** for any budget (test-asserted); tight budgets degrade
+  to slower execution, never failure. 10k training rows run in <700 MB RSS.
 
 Not (yet) ported: string/categorical input handling, SHAP feature masks,
 fine-tuning/forecast/unsupervised, GPU, fitted-estimator serialization,

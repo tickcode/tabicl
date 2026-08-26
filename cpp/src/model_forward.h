@@ -17,6 +17,12 @@ struct ForwardOptions {
   // Classifier: number of distinct classes in y_train (head slice width).
   int64_t num_classes = 0;
   bool return_logits = true;  // false: apply softmax(logits / temperature)
+  // Peak scratch budget per graph. Attention scores and activations are
+  // chunked along embarrassingly-parallel axes (query rows, table rows,
+  // column slots) to stay under it; results are bitwise-independent of the
+  // budget. Chunks never shrink below one row/slot, so tight budgets degrade
+  // to slower execution, never failure.
+  int64_t max_scratch_bytes = int64_t(1) << 30;  // 1 GiB
 };
 
 // X row-major (B, T, H); y_train row-major (B, train_size) as floats
@@ -34,19 +40,25 @@ std::vector<float> tabicl_forward(const Model& model, GraphRunner& runner,
 std::vector<float> col_embedding_forward(const Model& model, GraphRunner& runner,
                                          const float* X, const float* y_train,
                                          int64_t B, int64_t T, int64_t H,
-                                         int64_t train_size, int64_t num_classes);
+                                         int64_t train_size, int64_t num_classes,
+                                         int64_t max_scratch_bytes = int64_t(1) << 30);
 
 // In: (B, T, H, E) col embeddings; out row-major (B, T, D=E*num_cls).
 std::vector<float> row_interaction_forward(const Model& model, GraphRunner& runner,
                                            const float* col_out, int64_t B,
-                                           int64_t T, int64_t H);
+                                           int64_t T, int64_t H,
+                                           int64_t max_scratch_bytes = int64_t(1) << 30);
 
-// In: (B, T, D) representations; out row-major (B, T, out_dim) raw decoder
-// output over ALL rows (caller slices test rows / classes).
+// In: (B, T, D) representations; out row-major (B, T - train_size, out_dim)
+// raw decoder output over the TEST rows (train rows only feed the layers).
+// y_train == nullptr skips the y-embedding injection (repr-cache use path).
+// Executes layer-synchronously with query-row chunking under
+// max_scratch_bytes; results are bitwise-independent of the budget.
 std::vector<float> icl_forward(const Model& model, GraphRunner& runner,
                                const float* reprs, const float* y_train,
                                int64_t B, int64_t T, int64_t train_size,
-                               int64_t num_classes);
+                               int64_t num_classes,
+                               int64_t max_scratch_bytes = int64_t(1) << 30);
 
 // ---------------------------------------------------------------------------
 // KV cache (mirrors tabicl kv_cache.py, "kv" and "repr" modes)
@@ -73,7 +85,8 @@ struct TabICLCache {
 TabICLCache tabicl_build_cache(const Model& model, GraphRunner& runner,
                                const float* X_train, const float* y_train,
                                int64_t B, int64_t train_size, int64_t H,
-                               TabICLCache::Mode mode);
+                               TabICLCache::Mode mode,
+                               int64_t max_scratch_bytes = int64_t(1) << 30);
 
 // Cached forward on test rows only (Python forward_with_cache use pass).
 // Returns row-major (B, n_test, out_dim) logits/raw quantiles.

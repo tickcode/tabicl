@@ -90,7 +90,7 @@ std::vector<float> node_probs(const Model& model, GraphRunner& runner,
   const int64_t full_out = model.config().max_classes;
   std::vector<float> probs(static_cast<size_t>(n_test * k));
   for (int64_t t = 0; t < n_test; ++t) {
-    const float* row = &raw[static_cast<size_t>((n_node + t) * full_out)];
+    const float* row = &raw[static_cast<size_t>(t * full_out)];
     float mx = -std::numeric_limits<float>::infinity();
     for (int64_t j = 0; j < k; ++j) mx = std::max(mx, row[j] / tau);
     float denom = 0.0f;

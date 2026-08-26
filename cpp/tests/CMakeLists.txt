@@ -11,6 +11,7 @@ add_executable(tabicl_tests
   test_model_stages.cpp
   test_e2e.cpp
   test_cache.cpp
+  test_chunking.cpp
 )
 target_include_directories(tabicl_tests PRIVATE ${CMAKE_SOURCE_DIR}/third_party/doctest)
 target_compile_definitions(tabicl_tests PRIVATE

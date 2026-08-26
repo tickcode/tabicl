@@ -84,7 +84,8 @@ void EstimatorCore::fit(const double* X, int64_t n, int64_t d,
           }
         }
         caches_[gi].push_back(tabicl_build_cache(*model, *runner_, Xs.data(),
-                                                 ys.data(), bsize, train, H, mode));
+                                                 ys.data(), bsize, train, H, mode,
+                                                 opts_.max_scratch_bytes));
         mi += bsize;
       }
     }
@@ -126,6 +127,7 @@ EstimatorCore::EnsembleOutputs EstimatorCore::predict_outputs(
       fo.train_size = train;
       fo.num_classes = n_classes_;
       fo.return_logits = true;
+      fo.max_scratch_bytes = opts_.max_scratch_bytes;
 
       std::vector<float> out;
       if (clf && n_classes_ > c.max_classes) {
