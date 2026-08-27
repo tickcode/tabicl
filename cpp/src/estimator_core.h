@@ -15,23 +15,9 @@
 #include "preprocess/pipeline.h"
 #include "preprocess/transforms.h"
 #include "tabicl/model.h"
+#include "tabicl/options.h"
 
 namespace tabicl {
-
-enum class CacheMode { None, KV, Repr };
-
-struct EstimatorOptions {
-  CacheMode cache = CacheMode::None;
-  int n_estimators = 8;
-  std::vector<std::string> norm_methods = {"none", "power"};
-  int batch_size = 8;
-  uint64_t random_state = 42;
-  int n_threads = 0;
-  float softmax_temperature = 0.9f;
-  bool average_logits = true;  // classifier only
-  // Peak per-graph scratch budget; see ForwardOptions.max_scratch_bytes.
-  int64_t max_scratch_bytes = int64_t(1) << 30;
-};
 
 class EstimatorCore {
  public:

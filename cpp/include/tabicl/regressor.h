@@ -7,10 +7,10 @@
 #include <vector>
 
 #include "tabicl/model.h"
+#include "tabicl/options.h"
 
 namespace tabicl {
 
-struct EstimatorOptions;
 class EstimatorCore;
 
 class TabICLRegressor {

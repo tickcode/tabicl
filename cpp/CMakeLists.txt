@@ -1,12 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
-project(tabicl_cpp LANGUAGES C CXX)
+project(tabicl_cpp VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(TABICL_BUILD_TESTS  "Build tabicl C++ tests"            ON)
+option(TABICL_BUILD_TESTS    "Build tabicl C++ tests"          ON)
+option(TABICL_BUILD_EXAMPLES "Build example programs"          ON)
 option(TABICL_BUILD_PYBIND "Build the pybind11 testing module" OFF)
 option(TABICL_SANITIZE     "Build with ASan+UBSan"             OFF)
 # Route large fp32 matmuls through BLAS (OpenBLAS). Changes accumulation
@@ -67,7 +68,12 @@ add_library(tabicl_cpp STATIC
   src/io/npy.cpp
   src/io/sha256.cpp
 )
-target_include_directories(tabicl_cpp PUBLIC include src)
+target_include_directories(tabicl_cpp PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+set_target_properties(tabicl_cpp PROPERTIES EXPORT_NAME tabicl)
+add_library(tabicl::tabicl ALIAS tabicl_cpp)
 target_link_libraries(tabicl_cpp PUBLIC ggml)
 tabicl_set_warnings(tabicl_cpp)
 tabicl_set_sanitizers(tabicl_cpp)
@@ -78,6 +84,32 @@ if(TABICL_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
+if(TABICL_BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
+
 if(TABICL_BUILD_PYBIND)
   add_subdirectory(bindings)
 endif()
+
+# --- install / package config -------------------------------------------------
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+install(TARGETS tabicl_cpp ggml ggml-base ggml-cpu
+        EXPORT tabiclTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(DIRECTORY include/tabicl DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(EXPORT tabiclTargets NAMESPACE tabicl::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tabicl)
+configure_package_config_file(cmake/tabiclConfig.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/tabiclConfig.cmake
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tabicl)
+write_basic_package_version_file(
+  ${CMAKE_CURRENT_BINARY_DIR}/tabiclConfigVersion.cmake
+  VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/tabiclConfig.cmake
+              ${CMAKE_CURRENT_BINARY_DIR}/tabiclConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tabicl)

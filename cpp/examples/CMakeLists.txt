@@ -1,0 +1,3 @@
+add_executable(tabicl_quickstart quickstart.cpp)
+target_link_libraries(tabicl_quickstart PRIVATE tabicl::tabicl)
+tabicl_set_warnings(tabicl_quickstart)

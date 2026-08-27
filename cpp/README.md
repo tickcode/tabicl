@@ -43,15 +43,45 @@ fine-tuning/forecast/unsupervised, GPU, v1 checkpoints (interleaved RoPE),
 and the exponential/GPD distribution tails of the regressor (only the
 linear-spline quantile range [0.001, 0.999)).
 
-## Build
+## Quick start (no Python required)
 
 ```bash
-git submodule update --init --recursive
+git clone --recurse-submodules https://github.com/tickcode/tabicl.git
+cd tabicl
+
+# Build the library and examples
 cmake -B cpp/build -S cpp -DCMAKE_BUILD_TYPE=Release
 cmake --build cpp/build -j
+
+# Download a converted model (see the cpp-v0.1.0 GitHub release; verify
+# against sha256sums.txt from the same release)
+wget https://github.com/tickcode/tabicl/releases/download/cpp-v0.1.0/tabicl-classifier-v2.gguf
+
+# Run the example: fit, predict, save/load the fitted state
+./cpp/build/examples/tabicl_quickstart tabicl-classifier-v2.gguf
 ```
 
-Options:
+`cpp/examples/quickstart.cpp` is the annotated starting point.
+
+## Using the library from your own project
+
+Install and consume via CMake:
+
+```bash
+cmake --install cpp/build --prefix /your/prefix
+```
+
+```cmake
+find_package(tabicl CONFIG REQUIRED)   # -DCMAKE_PREFIX_PATH=/your/prefix
+target_link_libraries(your_app PRIVATE tabicl::tabicl)
+```
+
+Public headers: `<tabicl/model.h>`, `<tabicl/options.h>`,
+`<tabicl/classifier.h>`, `<tabicl/regressor.h>`. Alternatively, vendor the
+repo and `add_subdirectory(tabicl/cpp)` — the same `tabicl::tabicl` target
+exists in-tree.
+
+## Build options
 
 - `-DTABICL_BLAS=ON` — route large fp32 matmuls through OpenBLAS. The full
   parity suite passes at unchanged tolerances; mainly speeds up the KV-cache
@@ -63,9 +93,15 @@ Options:
 
 ## Checkpoints
 
+Pre-converted GGUF model files (classifier + regressor, with SHA256 sums) are
+attached to the `cpp-v0.1.0` GitHub release — that is the recommended path
+and needs no Python. To convert a checkpoint yourself (e.g. a fine-tuned
+one), a one-time Python step does it:
+
 ```bash
+pip install torch gguf
 python scripts/export_gguf.py /path/to/tabicl-classifier-v2-20260212.ckpt \
-       cpp/tests/fixtures/tabicl-classifier-v2.gguf
+       tabicl-classifier-v2.gguf
 ```
 
 The exporter validates the config against the supported feature matrix,
