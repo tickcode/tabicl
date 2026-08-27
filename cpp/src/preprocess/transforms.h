@@ -30,6 +30,13 @@ class MeanImputer {
   // Full input-column length; NaN marks dropped (all-NaN) columns.
   const std::vector<double>& statistics() const { return statistics_; }
   const std::vector<int64_t>& kept_columns() const { return kept_; }
+  int64_t d_in() const { return d_in_; }
+  void restore(std::vector<double> statistics, std::vector<int64_t> kept,
+               int64_t d_in) {
+    statistics_ = std::move(statistics);
+    kept_ = std::move(kept);
+    d_in_ = d_in;
+  }
 
  private:
   std::vector<double> statistics_;
@@ -46,6 +53,11 @@ class UniqueFeatureFilter {
 
   const std::vector<bool>& features_to_keep() const { return keep_; }
   int64_t n_features_out() const;
+  int64_t d_in() const { return d_in_; }
+  void restore(std::vector<bool> keep, int64_t d_in) {
+    keep_ = std::move(keep);
+    d_in_ = d_in;
+  }
 
  private:
   std::vector<bool> keep_;
@@ -60,6 +72,10 @@ class CustomStandardScaler {
 
   const std::vector<double>& mean() const { return mean_; }
   const std::vector<double>& scale() const { return scale_; }
+  void restore(std::vector<double> mean, std::vector<double> scale) {
+    mean_ = std::move(mean);
+    scale_ = std::move(scale);
+  }
 
  private:
   std::vector<double> mean_, scale_;
@@ -73,6 +89,10 @@ class OutlierRemover {
 
   const std::vector<double>& lower_bounds() const { return lower_; }
   const std::vector<double>& upper_bounds() const { return upper_; }
+  void restore(std::vector<double> lower, std::vector<double> upper) {
+    lower_ = std::move(lower);
+    upper_ = std::move(upper);
+  }
 
  private:
   std::vector<double> lower_, upper_;

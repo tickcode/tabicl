@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "ggml_utils.h"
+#include "io/fitted_state.h"
 #include "model_forward.h"
 #include "preprocess/ensemble.h"
 #include "preprocess/pipeline.h"
@@ -56,6 +57,10 @@ class EstimatorCore {
   int64_t train_size() const { return static_cast<int64_t>(y_model_.size()); }
   const EstimatorOptions& options() const { return opts_; }
 
+  // Fitted-state (de)serialization; the schema is versioned by the wrapper.
+  void save(FittedWriter& w) const;
+  void load(const FittedReader& r, int n_threads_override = -1);
+
  private:
   EstimatorOptions opts_;
   int64_t d_in_ = 0;
@@ -74,5 +79,9 @@ class EstimatorCore {
 
 // np.array_split sizes: k parts of n, first n%k parts one element larger.
 std::vector<int64_t> array_split_sizes(int64_t n, int64_t k);
+
+// Cheap checkpoint identity (SHA256 of the decoder output projection); stored
+// in fitted-state files and verified at load.
+std::string model_fingerprint(const Model& model);
 
 }  // namespace tabicl

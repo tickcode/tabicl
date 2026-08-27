@@ -17,6 +17,8 @@ class TabICLClassifier {
  public:
   explicit TabICLClassifier(std::shared_ptr<Model> model);
   TabICLClassifier(std::shared_ptr<Model> model, const EstimatorOptions& opts);
+  TabICLClassifier(TabICLClassifier&&) noexcept;
+  TabICLClassifier& operator=(TabICLClassifier&&) noexcept;
   ~TabICLClassifier();
 
   // X row-major (n, d) double, NaN = missing; y (n) class labels (any doubles).
@@ -29,6 +31,15 @@ class TabICLClassifier {
 
   const std::vector<double>& classes() const { return classes_; }
   int64_t n_classes() const { return static_cast<int64_t>(classes_.size()); }
+
+  // Persist the fitted state (preprocessing, ensemble configs, KV cache) to a
+  // versioned GGUF file. load() verifies the file was fitted with the SAME
+  // checkpoint (fingerprint) and restores a ready-to-predict estimator;
+  // n_threads_override >= 0 replaces the stored thread count.
+  void save(const std::string& path) const;
+  static TabICLClassifier load(const std::string& path,
+                               std::shared_ptr<Model> model,
+                               int n_threads_override = -1);
 
  private:
   std::shared_ptr<Model> model_;

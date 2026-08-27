@@ -17,6 +17,8 @@ class TabICLRegressor {
  public:
   explicit TabICLRegressor(std::shared_ptr<Model> model);
   TabICLRegressor(std::shared_ptr<Model> model, const EstimatorOptions& opts);
+  TabICLRegressor(TabICLRegressor&&) noexcept;
+  TabICLRegressor& operator=(TabICLRegressor&&) noexcept;
   ~TabICLRegressor();
 
   // X row-major (n, d) double, NaN = missing; y (n) targets.
@@ -28,6 +30,12 @@ class TabICLRegressor {
   // Quantile predictions for alphas in [0.001, 0.999); out (n_test, n_alphas).
   void predict_quantiles(const double* X, int64_t n_test, const double* alphas,
                          int64_t n_alphas, double* out) const;
+
+  // Fitted-state persistence (see TabICLClassifier::save/load).
+  void save(const std::string& path) const;
+  static TabICLRegressor load(const std::string& path,
+                              std::shared_ptr<Model> model,
+                              int n_threads_override = -1);
 
  private:
   std::shared_ptr<Model> model_;

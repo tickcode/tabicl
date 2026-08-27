@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 
+#include "io/fitted_state.h"
 #include "preprocess/power_transform.h"
 #include "preprocess/quantile_transform.h"
 #include "preprocess/robust_scaler.h"
@@ -23,6 +24,11 @@ class PreprocessingPipeline {
   void fit(const Matrix& X);
   Matrix transform(const Matrix& X) const;
   const Matrix& train_transformed() const { return train_transformed_; }
+  const std::string& method() const { return method_; }
+
+  // Serialize the fitted state under `prefix` / restore it (fitted-state file).
+  void save(FittedWriter& w, const std::string& prefix) const;
+  void load(const FittedReader& r, const std::string& prefix);
 
  private:
   std::string method_;

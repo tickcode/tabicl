@@ -20,6 +20,10 @@ class PowerTransformerYJ {
 
   const std::vector<double>& lambdas() const { return lambdas_; }
   const SkStandardScaler& scaler() const { return scaler_; }
+  void restore(std::vector<double> lambdas, SkStandardScaler scaler) {
+    lambdas_ = std::move(lambdas);
+    scaler_ = std::move(scaler);
+  }
 
  private:
   std::vector<double> lambdas_;

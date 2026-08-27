@@ -56,4 +56,80 @@ Matrix PreprocessingPipeline::transform(const Matrix& X) const {
   return outlier_.transform(out);
 }
 
+void PreprocessingPipeline::save(FittedWriter& w, const std::string& prefix) const {
+  w.put_str(prefix + "method", method_);
+  w.put_f64_tensor(prefix + "scaler.mean", scaler_.mean());
+  w.put_f64_tensor(prefix + "scaler.scale", scaler_.scale());
+  if (method_ == "power") {
+    w.put_f64_tensor(prefix + "yj.lambdas", power_->lambdas());
+    w.put_f64_tensor(prefix + "yj.std.mean", power_->scaler().mean());
+    w.put_f64_tensor(prefix + "yj.std.var", power_->scaler().var());
+    w.put_f64_tensor(prefix + "yj.std.scale", power_->scaler().scale());
+  } else if (method_ == "quantile") {
+    w.put_u64(prefix + "qt.nq", static_cast<uint64_t>(quantile_->n_quantiles_fitted()));
+    w.put_u64(prefix + "qt.d", static_cast<uint64_t>(quantile_->d()));
+    w.put_f64_tensor(prefix + "qt.references", quantile_->references());
+    w.put_f64_tensor(prefix + "qt.quantiles", quantile_->quantiles());
+  } else if (method_ == "quantile_rtdl") {
+    w.put_u64(prefix + "rtdl.qt.nq", static_cast<uint64_t>(rtdl_->qt().n_quantiles_fitted()));
+    w.put_u64(prefix + "rtdl.qt.d", static_cast<uint64_t>(rtdl_->qt().d()));
+    w.put_f64_tensor(prefix + "rtdl.qt.references", rtdl_->qt().references());
+    w.put_f64_tensor(prefix + "rtdl.qt.quantiles", rtdl_->qt().quantiles());
+    w.put_f64_tensor(prefix + "rtdl.std.mean", rtdl_->scaler().mean());
+    w.put_f64_tensor(prefix + "rtdl.std.var", rtdl_->scaler().var());
+    w.put_f64_tensor(prefix + "rtdl.std.scale", rtdl_->scaler().scale());
+  } else if (method_ == "robust") {
+    w.put_f64_tensor(prefix + "robust.center", robust_->center());
+    w.put_f64_tensor(prefix + "robust.scale", robust_->scale());
+  }
+  w.put_f64_tensor(prefix + "outlier.lower", outlier_.lower_bounds());
+  w.put_f64_tensor(prefix + "outlier.upper", outlier_.upper_bounds());
+  w.put_u64(prefix + "train.n", static_cast<uint64_t>(train_transformed_.n));
+  w.put_u64(prefix + "train.d", static_cast<uint64_t>(train_transformed_.d));
+  w.put_f64_tensor(prefix + "train.data", train_transformed_.data);
+}
+
+void PreprocessingPipeline::load(const FittedReader& r, const std::string& prefix) {
+  const std::string method = r.get_str(prefix + "method");
+  if (method != method_)
+    throw std::runtime_error("fitted: pipeline method mismatch at " + prefix);
+  scaler_.restore(r.get_f64_tensor(prefix + "scaler.mean"),
+                  r.get_f64_tensor(prefix + "scaler.scale"));
+  if (method_ == "power") {
+    SkStandardScaler sk;
+    sk.restore(r.get_f64_tensor(prefix + "yj.std.mean"),
+               r.get_f64_tensor(prefix + "yj.std.var"),
+               r.get_f64_tensor(prefix + "yj.std.scale"));
+    power_ = std::make_unique<PowerTransformerYJ>();
+    power_->restore(r.get_f64_tensor(prefix + "yj.lambdas"), std::move(sk));
+  } else if (method_ == "quantile") {
+    quantile_ = std::make_unique<QuantileTransformerNormal>();
+    quantile_->restore(static_cast<int64_t>(r.get_u64(prefix + "qt.nq")),
+                       static_cast<int64_t>(r.get_u64(prefix + "qt.d")),
+                       r.get_f64_tensor(prefix + "qt.references"),
+                       r.get_f64_tensor(prefix + "qt.quantiles"));
+  } else if (method_ == "quantile_rtdl") {
+    QuantileTransformerNormal qt;
+    qt.restore(static_cast<int64_t>(r.get_u64(prefix + "rtdl.qt.nq")),
+               static_cast<int64_t>(r.get_u64(prefix + "rtdl.qt.d")),
+               r.get_f64_tensor(prefix + "rtdl.qt.references"),
+               r.get_f64_tensor(prefix + "rtdl.qt.quantiles"));
+    SkStandardScaler sk;
+    sk.restore(r.get_f64_tensor(prefix + "rtdl.std.mean"),
+               r.get_f64_tensor(prefix + "rtdl.std.var"),
+               r.get_f64_tensor(prefix + "rtdl.std.scale"));
+    rtdl_ = std::make_unique<RTDLQuantileTransformer>();
+    rtdl_->restore(std::move(qt), std::move(sk));
+  } else if (method_ == "robust") {
+    robust_ = std::make_unique<RobustScalerUV>();
+    robust_->restore(r.get_f64_tensor(prefix + "robust.center"),
+                     r.get_f64_tensor(prefix + "robust.scale"));
+  }
+  outlier_.restore(r.get_f64_tensor(prefix + "outlier.lower"),
+                   r.get_f64_tensor(prefix + "outlier.upper"));
+  train_transformed_.n = static_cast<int64_t>(r.get_u64(prefix + "train.n"));
+  train_transformed_.d = static_cast<int64_t>(r.get_u64(prefix + "train.d"));
+  train_transformed_.data = r.get_f64_tensor(prefix + "train.data");
+}
+
 }  // namespace tabicl

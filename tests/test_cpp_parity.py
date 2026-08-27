@@ -129,6 +129,20 @@ def test_classifier_label_encoding(clf_model):
     assert set(pred).issubset(set(y_labels))
 
 
+def test_fitted_state_roundtrip(clf_model, tmp_path):
+    """save -> load reproduces predictions bitwise (KV-cache mode)."""
+    Xtr, y, Xte = make_data(8, 50, 10, 4, 3)
+    clf = tcpp.Classifier(clf_model, cache="kv", n_threads=8)
+    clf.fit(Xtr, y)
+    before = clf.predict_proba(Xte)
+    path = str(tmp_path / "fitted.gguf")
+    clf.save(path)
+    loaded = tcpp.Classifier.load(path, clf_model)
+    after = loaded.predict_proba(Xte)
+    np.testing.assert_array_equal(before, after)  # bitwise
+    assert loaded.classes_ == clf.classes_
+
+
 def test_regressor_parity(reg_model):
     from tabicl import TabICLRegressor
 

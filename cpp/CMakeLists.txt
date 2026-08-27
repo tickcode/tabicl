@@ -63,6 +63,7 @@ add_library(tabicl_cpp STATIC
   src/preprocess/power_transform.cpp
   src/preprocess/robust_scaler.cpp
   src/preprocess/quantile_transform.cpp
+  src/io/fitted_state.cpp
   src/io/npy.cpp
   src/io/sha256.cpp
 )

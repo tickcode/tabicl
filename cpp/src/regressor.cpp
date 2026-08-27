@@ -5,6 +5,7 @@
 #include <stdexcept>
 
 #include "estimator_core.h"
+#include "io/fitted_state.h"
 #include "preprocess/sklearn_scaler.h"
 
 namespace tabicl {
@@ -54,7 +55,47 @@ TabICLRegressor::TabICLRegressor(std::shared_ptr<Model> model,
   opts_ = std::make_unique<EstimatorOptions>(opts);
 }
 
+TabICLRegressor::TabICLRegressor(TabICLRegressor&&) noexcept = default;
+TabICLRegressor& TabICLRegressor::operator=(TabICLRegressor&&) noexcept = default;
 TabICLRegressor::~TabICLRegressor() = default;
+
+void TabICLRegressor::save(const std::string& path) const {
+  if (core_->train_size() == 0)
+    throw std::runtime_error("save: estimator is not fitted");
+  FittedWriter w;
+  w.put_str("general.architecture", "tabicl-fitted");
+  w.put_u32("tabicl.fitted.format_version", 1);
+  w.put_str("tabicl.fitted.task", "regression");
+  w.put_str("tabicl.fitted.model_fingerprint", model_fingerprint(*model_));
+  core_->save(w);
+  w.put_f64("reg.y_mean", y_mean_);
+  w.put_f64("reg.y_scale", y_scale_);
+  w.write(path);
+}
+
+TabICLRegressor TabICLRegressor::load(const std::string& path,
+                                      std::shared_ptr<Model> model,
+                                      int n_threads_override) {
+  FittedReader r(path);
+  if (r.get_str("general.architecture") != "tabicl-fitted")
+    throw std::runtime_error("load: not a tabicl fitted-state file");
+  const uint32_t ver = r.get_u32("tabicl.fitted.format_version");
+  if (ver != 1)
+    throw std::runtime_error("load: unsupported fitted format version " +
+                             std::to_string(ver));
+  if (r.get_str("tabicl.fitted.task") != "regression")
+    throw std::runtime_error("load: file is not a fitted regressor");
+  if (r.get_str("tabicl.fitted.model_fingerprint") != model_fingerprint(*model))
+    throw std::runtime_error(
+        "load: fitted state was created with a different model checkpoint");
+
+  TabICLRegressor reg(std::move(model));
+  reg.core_->load(r, n_threads_override);
+  *reg.opts_ = reg.core_->options();
+  reg.y_mean_ = r.get_f64("reg.y_mean");
+  reg.y_scale_ = r.get_f64("reg.y_scale");
+  return reg;
+}
 
 void TabICLRegressor::fit(const double* X, const double* y, int64_t n, int64_t d) {
   // sklearn StandardScaler on y (fp64 stats over the fp32-cast targets,

@@ -6,6 +6,7 @@
 #include <stdexcept>
 
 #include "estimator_core.h"
+#include "io/fitted_state.h"
 
 namespace tabicl {
 
@@ -20,7 +21,44 @@ TabICLClassifier::TabICLClassifier(std::shared_ptr<Model> model,
   opts_ = std::make_unique<EstimatorOptions>(opts);
 }
 
+TabICLClassifier::TabICLClassifier(TabICLClassifier&&) noexcept = default;
+TabICLClassifier& TabICLClassifier::operator=(TabICLClassifier&&) noexcept = default;
 TabICLClassifier::~TabICLClassifier() = default;
+
+void TabICLClassifier::save(const std::string& path) const {
+  if (classes_.empty()) throw std::runtime_error("save: estimator is not fitted");
+  FittedWriter w;
+  w.put_str("general.architecture", "tabicl-fitted");
+  w.put_u32("tabicl.fitted.format_version", 1);
+  w.put_str("tabicl.fitted.task", "classification");
+  w.put_str("tabicl.fitted.model_fingerprint", model_fingerprint(*model_));
+  core_->save(w);
+  w.put_f64_tensor("clf.classes", classes_);
+  w.write(path);
+}
+
+TabICLClassifier TabICLClassifier::load(const std::string& path,
+                                        std::shared_ptr<Model> model,
+                                        int n_threads_override) {
+  FittedReader r(path);
+  if (r.get_str("general.architecture") != "tabicl-fitted")
+    throw std::runtime_error("load: not a tabicl fitted-state file");
+  const uint32_t ver = r.get_u32("tabicl.fitted.format_version");
+  if (ver != 1)
+    throw std::runtime_error("load: unsupported fitted format version " +
+                             std::to_string(ver));
+  if (r.get_str("tabicl.fitted.task") != "classification")
+    throw std::runtime_error("load: file is not a fitted classifier");
+  if (r.get_str("tabicl.fitted.model_fingerprint") != model_fingerprint(*model))
+    throw std::runtime_error(
+        "load: fitted state was created with a different model checkpoint");
+
+  TabICLClassifier clf(std::move(model));
+  clf.core_->load(r, n_threads_override);
+  *clf.opts_ = clf.core_->options();
+  clf.classes_ = r.get_f64_tensor("clf.classes");
+  return clf;
+}
 
 void TabICLClassifier::fit(const double* X, const double* y, int64_t n, int64_t d) {
   // LabelEncoder: classes_ = sorted unique labels; y -> contiguous indices.

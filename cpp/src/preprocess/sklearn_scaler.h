@@ -19,6 +19,12 @@ class SkStandardScaler {
   const std::vector<double>& mean() const { return mean_; }
   const std::vector<double>& var() const { return var_; }
   const std::vector<double>& scale() const { return scale_; }
+  void restore(std::vector<double> mean, std::vector<double> var,
+               std::vector<double> scale) {
+    mean_ = std::move(mean);
+    var_ = std::move(var);
+    scale_ = std::move(scale);
+  }
 
  private:
   std::vector<double> mean_, var_, scale_;

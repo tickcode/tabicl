@@ -23,6 +23,14 @@ class QuantileTransformerNormal {
   // quantiles_[q * d + j] — row-major (n_quantiles_, d), like numpy.
   const std::vector<double>& quantiles() const { return quantiles_; }
   int64_t n_quantiles_fitted() const { return n_quantiles_; }
+  int64_t d() const { return d_; }
+  void restore(int64_t n_quantiles, int64_t d, std::vector<double> references,
+               std::vector<double> quantiles) {
+    n_quantiles_ = n_quantiles;
+    d_ = d;
+    references_ = std::move(references);
+    quantiles_ = std::move(quantiles);
+  }
 
  private:
   int64_t n_quantiles_ = 0;
@@ -40,6 +48,10 @@ class RTDLQuantileTransformer {
 
   const QuantileTransformerNormal& qt() const { return qt_; }
   const SkStandardScaler& scaler() const { return scaler_; }
+  void restore(QuantileTransformerNormal qt, SkStandardScaler scaler) {
+    qt_ = std::move(qt);
+    scaler_ = std::move(scaler);
+  }
 
  private:
   QuantileTransformerNormal qt_;

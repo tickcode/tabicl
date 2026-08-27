@@ -3,7 +3,9 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "ggml.h"
 #include "hierarchical.h"
+#include "io/sha256.h"
 #include "model_forward.h"
 
 namespace tabicl {
@@ -210,6 +212,189 @@ EstimatorCore::EnsembleOutputs EstimatorCore::predict_outputs(
     }
   }
   return result;
+}
+
+namespace {
+
+std::vector<int32_t> to_i32(const std::vector<int64_t>& v) {
+  return std::vector<int32_t>(v.begin(), v.end());
+}
+std::vector<int32_t> bools_to_i32(const std::vector<bool>& v) {
+  std::vector<int32_t> out(v.size());
+  for (size_t i = 0; i < v.size(); ++i) out[i] = v[i] ? 1 : 0;
+  return out;
+}
+
+void save_cache(FittedWriter& w, const std::string& p, const TabICLCache& c) {
+  w.put_u32(p + "mode", c.mode == TabICLCache::Mode::KV ? 0u : 1u);
+  w.put_u64(p + "B", static_cast<uint64_t>(c.B));
+  w.put_u64(p + "train", static_cast<uint64_t>(c.train_size));
+  w.put_u64(p + "H", static_cast<uint64_t>(c.H));
+  for (size_t i = 0; i < c.col_k.size(); ++i) {
+    w.put_f32_tensor(p + "col_k." + std::to_string(i), c.col_k[i]);
+    w.put_f32_tensor(p + "col_v." + std::to_string(i), c.col_v[i]);
+  }
+  w.put_u32(p + "n_col", static_cast<uint32_t>(c.col_k.size()));
+  for (size_t i = 0; i < c.icl_k.size(); ++i) {
+    w.put_f32_tensor(p + "icl_k." + std::to_string(i), c.icl_k[i]);
+    w.put_f32_tensor(p + "icl_v." + std::to_string(i), c.icl_v[i]);
+  }
+  w.put_u32(p + "n_icl", static_cast<uint32_t>(c.icl_k.size()));
+  if (c.mode == TabICLCache::Mode::Repr) w.put_f32_tensor(p + "repr", c.row_repr);
+}
+
+TabICLCache load_cache(const FittedReader& r, const std::string& p) {
+  TabICLCache c;
+  c.mode = r.get_u32(p + "mode") == 0 ? TabICLCache::Mode::KV
+                                      : TabICLCache::Mode::Repr;
+  c.B = static_cast<int64_t>(r.get_u64(p + "B"));
+  c.train_size = static_cast<int64_t>(r.get_u64(p + "train"));
+  c.H = static_cast<int64_t>(r.get_u64(p + "H"));
+  const uint32_t n_col = r.get_u32(p + "n_col");
+  for (uint32_t i = 0; i < n_col; ++i) {
+    c.col_k.push_back(r.get_f32_tensor(p + "col_k." + std::to_string(i)));
+    c.col_v.push_back(r.get_f32_tensor(p + "col_v." + std::to_string(i)));
+  }
+  const uint32_t n_icl = r.get_u32(p + "n_icl");
+  for (uint32_t i = 0; i < n_icl; ++i) {
+    c.icl_k.push_back(r.get_f32_tensor(p + "icl_k." + std::to_string(i)));
+    c.icl_v.push_back(r.get_f32_tensor(p + "icl_v." + std::to_string(i)));
+  }
+  if (c.mode == TabICLCache::Mode::Repr) c.row_repr = r.get_f32_tensor(p + "repr");
+  return c;
+}
+
+}  // namespace
+
+std::string model_fingerprint(const Model& model) {
+  // Cheap identity check for "same checkpoint": the decoder output projection
+  // distinguishes task, head width, and any fine-tune.
+  ggml_tensor* t = model.tensor("icl.decoder.2.weight");
+  return sha256_hex(t->data, ggml_nbytes(t));
+}
+
+void EstimatorCore::save(FittedWriter& w) const {
+  w.put_u64("core.d_in", static_cast<uint64_t>(d_in_));
+  w.put_u64("core.n_classes", static_cast<uint64_t>(n_classes_));
+  w.put_f32_tensor("core.y_model", y_model_);
+
+  w.put_u32("opt.cache", static_cast<uint32_t>(opts_.cache));
+  w.put_u32("opt.n_estimators", static_cast<uint32_t>(opts_.n_estimators));
+  w.put_u32("opt.batch_size", static_cast<uint32_t>(opts_.batch_size));
+  w.put_u64("opt.random_state", opts_.random_state);
+  w.put_u32("opt.n_threads", static_cast<uint32_t>(opts_.n_threads));
+  w.put_f64("opt.softmax_temperature", opts_.softmax_temperature);
+  w.put_bool("opt.average_logits", opts_.average_logits);
+  w.put_u64("opt.max_scratch_bytes", static_cast<uint64_t>(opts_.max_scratch_bytes));
+  w.put_u32("opt.n_norm_methods", static_cast<uint32_t>(opts_.norm_methods.size()));
+  for (size_t i = 0; i < opts_.norm_methods.size(); ++i)
+    w.put_str("opt.norm_method." + std::to_string(i), opts_.norm_methods[i]);
+
+  w.put_u64("imputer.d_in", static_cast<uint64_t>(imputer_.d_in()));
+  w.put_f64_tensor("imputer.statistics", imputer_.statistics());
+  w.put_i32_tensor("imputer.kept", to_i32(imputer_.kept_columns()));
+  w.put_u64("filter.d_in", static_cast<uint64_t>(filter_.d_in()));
+  w.put_i32_tensor("filter.keep", bools_to_i32(filter_.features_to_keep()));
+
+  w.put_u32("configs.n_groups", static_cast<uint32_t>(configs_.method_order.size()));
+  for (size_t gi = 0; gi < configs_.method_order.size(); ++gi) {
+    const std::string p = "configs." + std::to_string(gi) + ".";
+    w.put_str(p + "method", configs_.method_order[gi]);
+    const auto& members = configs_.members[gi];
+    w.put_u32(p + "n_members", static_cast<uint32_t>(members.size()));
+    std::vector<int32_t> feat, cls;
+    for (const auto& m : members) {
+      feat.insert(feat.end(), m.feature_shuffle.begin(), m.feature_shuffle.end());
+      cls.insert(cls.end(), m.class_shuffle.begin(), m.class_shuffle.end());
+    }
+    w.put_i32_tensor(p + "feat", feat);
+    w.put_i32_tensor(p + "class", cls);
+    pipelines_[gi]->save(w, "pipe." + std::to_string(gi) + ".");
+  }
+
+  w.put_u32("cache.n_groups", static_cast<uint32_t>(caches_.size()));
+  for (size_t gi = 0; gi < caches_.size(); ++gi) {
+    w.put_u32("cache." + std::to_string(gi) + ".n_batches",
+              static_cast<uint32_t>(caches_[gi].size()));
+    for (size_t bi = 0; bi < caches_[gi].size(); ++bi)
+      save_cache(w, "cache." + std::to_string(gi) + "." + std::to_string(bi) + ".",
+                 caches_[gi][bi]);
+  }
+}
+
+void EstimatorCore::load(const FittedReader& r, int n_threads_override) {
+  d_in_ = static_cast<int64_t>(r.get_u64("core.d_in"));
+  n_classes_ = static_cast<int64_t>(r.get_u64("core.n_classes"));
+  y_model_ = r.get_f32_tensor("core.y_model");
+
+  opts_.cache = static_cast<CacheMode>(r.get_u32("opt.cache"));
+  opts_.n_estimators = static_cast<int>(r.get_u32("opt.n_estimators"));
+  opts_.batch_size = static_cast<int>(r.get_u32("opt.batch_size"));
+  opts_.random_state = r.get_u64("opt.random_state");
+  opts_.n_threads = n_threads_override >= 0
+                        ? n_threads_override
+                        : static_cast<int>(r.get_u32("opt.n_threads"));
+  opts_.softmax_temperature = static_cast<float>(r.get_f64("opt.softmax_temperature"));
+  opts_.average_logits = r.get_bool("opt.average_logits");
+  opts_.max_scratch_bytes = static_cast<int64_t>(r.get_u64("opt.max_scratch_bytes"));
+  opts_.norm_methods.clear();
+  const uint32_t n_methods = r.get_u32("opt.n_norm_methods");
+  for (uint32_t i = 0; i < n_methods; ++i)
+    opts_.norm_methods.push_back(r.get_str("opt.norm_method." + std::to_string(i)));
+
+  {
+    std::vector<int64_t> kept;
+    for (int32_t v : r.get_i32_tensor("imputer.kept")) kept.push_back(v);
+    imputer_.restore(r.get_f64_tensor("imputer.statistics"), std::move(kept),
+                     static_cast<int64_t>(r.get_u64("imputer.d_in")));
+  }
+  {
+    std::vector<bool> keep;
+    for (int32_t v : r.get_i32_tensor("filter.keep")) keep.push_back(v != 0);
+    filter_.restore(std::move(keep), static_cast<int64_t>(r.get_u64("filter.d_in")));
+  }
+
+  configs_ = EnsembleConfigs{};
+  pipelines_.clear();
+  const uint32_t n_groups = r.get_u32("configs.n_groups");
+  for (uint32_t gi = 0; gi < n_groups; ++gi) {
+    const std::string p = "configs." + std::to_string(gi) + ".";
+    const std::string method = r.get_str(p + "method");
+    configs_.method_order.push_back(method);
+    const uint32_t n_members = r.get_u32(p + "n_members");
+    const auto feat = r.get_i32_tensor(p + "feat");
+    const auto cls = r.get_i32_tensor(p + "class");
+    const int64_t H = n_members > 0 ? static_cast<int64_t>(feat.size()) / n_members : 0;
+    const int64_t C =
+        n_members > 0 ? static_cast<int64_t>(cls.size()) / n_members : 0;
+    std::vector<EnsembleMember> members(n_members);
+    for (uint32_t m = 0; m < n_members; ++m) {
+      members[m].feature_shuffle.assign(feat.begin() + m * H,
+                                        feat.begin() + (m + 1) * H);
+      if (C > 0)
+        members[m].class_shuffle.assign(cls.begin() + m * C,
+                                        cls.begin() + (m + 1) * C);
+    }
+    configs_.members.push_back(std::move(members));
+
+    auto pipe = std::make_unique<PreprocessingPipeline>(method, 4.0,
+                                                        opts_.random_state);
+    pipe->load(r, "pipe." + std::to_string(gi) + ".");
+    pipelines_.push_back(std::move(pipe));
+  }
+
+  caches_.clear();
+  const uint32_t cache_groups = r.get_u32("cache.n_groups");
+  caches_.resize(cache_groups);
+  for (uint32_t gi = 0; gi < cache_groups; ++gi) {
+    const uint32_t n_batches =
+        r.get_u32("cache." + std::to_string(gi) + ".n_batches");
+    for (uint32_t bi = 0; bi < n_batches; ++bi)
+      caches_[gi].push_back(load_cache(
+          r, "cache." + std::to_string(gi) + "." + std::to_string(bi) + "."));
+  }
+
+  runner_ = std::make_unique<GraphRunner>(opts_.n_threads);
 }
 
 }  // namespace tabicl

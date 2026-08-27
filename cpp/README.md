@@ -32,11 +32,16 @@ Supported (parity-tested against the Python implementation):
   (`EstimatorOptions::max_scratch_bytes`, default 1 GiB). Results are
   **bitwise identical** for any budget (test-asserted); tight budgets degrade
   to slower execution, never failure. 10k training rows run in <700 MB RSS.
+- Fitted-estimator serialization: `save(path)` / `load(path, model)` persist
+  the complete fitted state (preprocessing, ensemble configs, KV cache) to a
+  versioned GGUF file. Loading reproduces predictions **bitwise**; the file
+  records a checkpoint fingerprint and refuses to load against a different
+  model. This is a C++-only format (no Python pickle interop).
 
 Not (yet) ported: string/categorical input handling, SHAP feature masks,
-fine-tuning/forecast/unsupervised, GPU, fitted-estimator serialization,
-v1 checkpoints (interleaved RoPE), and the exponential/GPD distribution tails
-of the regressor (only the linear-spline quantile range [0.001, 0.999)).
+fine-tuning/forecast/unsupervised, GPU, v1 checkpoints (interleaved RoPE),
+and the exponential/GPD distribution tails of the regressor (only the
+linear-spline quantile range [0.001, 0.999)).
 
 ## Build
 
@@ -80,6 +85,10 @@ opts.n_threads = 16;
 tabicl::TabICLClassifier clf(model, opts);
 clf.fit(X_train, y_train, n_train, n_features);        // row-major double*
 clf.predict_proba(X_test, n_test, probs_out);          // fast: reuses cache
+
+clf.save("fitted.gguf");                               // persist fitted state
+auto clf2 = tabicl::TabICLClassifier::load("fitted.gguf", model);
+clf2.predict_proba(X_test, n_test, probs_out);         // bitwise-identical
 ```
 
 ## Tests

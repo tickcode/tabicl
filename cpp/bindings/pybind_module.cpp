@@ -74,7 +74,10 @@ PYBIND11_MODULE(tabicl_cpp_testing, m) {
              self.predict(X.data(), n, out.mutable_data());
              return out;
            })
-      .def_property_readonly("classes_", &tabicl::TabICLClassifier::classes);
+      .def_property_readonly("classes_", &tabicl::TabICLClassifier::classes)
+      .def("save", &tabicl::TabICLClassifier::save)
+      .def_static("load", &tabicl::TabICLClassifier::load, py::arg("path"),
+                  py::arg("model"), py::arg("n_threads_override") = -1);
 
   py::class_<tabicl::TabICLRegressor>(m, "Regressor")
       .def(py::init([](std::shared_ptr<tabicl::Model> model, int n_estimators,
@@ -110,5 +113,8 @@ PYBIND11_MODULE(tabicl_cpp_testing, m) {
              self.predict_quantiles(X.data(), n, alphas.data(), na,
                                     out.mutable_data());
              return out;
-           });
+           })
+      .def("save", &tabicl::TabICLRegressor::save)
+      .def_static("load", &tabicl::TabICLRegressor::load, py::arg("path"),
+                  py::arg("model"), py::arg("n_threads_override") = -1);
 }
