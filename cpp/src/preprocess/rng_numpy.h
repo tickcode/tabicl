@@ -64,8 +64,11 @@ class NpPCG64 {
 
  private:
   void seed_from(const NpSeedSequence& ss);
-  unsigned __int128 state_;
-  unsigned __int128 inc_;
+  // PCG64's LCG state is 128-bit by construction. __int128 is a GCC/Clang
+  // extension, so `__extension__` waives -Wpedantic at these declarations
+  // instead of disabling the warning for the whole target.
+  __extension__ unsigned __int128 state_;
+  __extension__ unsigned __int128 inc_;
 };
 
 }  // namespace tabicl

@@ -145,7 +145,8 @@ std::vector<uint64_t> NpSeedSequence::generate_state64(int n_words) const {
 // ---------------------------------------------------------------------------
 
 namespace {
-using u128 = unsigned __int128;
+// See rng_numpy.h: __int128 is a GCC/Clang extension; waive -Wpedantic here.
+__extension__ using u128 = unsigned __int128;
 constexpr uint64_t PCG_MULT_HI = 2549297995355413924ull;
 constexpr uint64_t PCG_MULT_LO = 4865540595714422341ull;
 inline u128 pcg_mult() { return (static_cast<u128>(PCG_MULT_HI) << 64) | PCG_MULT_LO; }
