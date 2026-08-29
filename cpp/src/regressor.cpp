@@ -7,42 +7,9 @@
 #include "estimator_core.h"
 #include "io/fitted_state.h"
 #include "preprocess/sklearn_scaler.h"
+#include "quantile_dist.h"
 
 namespace tabicl {
-
-namespace {
-
-// torch.linspace(0, 1, 1001)[1:-1] in fp32: the quantile alpha grid.
-std::vector<float> alpha_levels(int64_t num_quantiles) {
-  std::vector<float> a(static_cast<size_t>(num_quantiles));
-  const float step = 1.0f / static_cast<float>(num_quantiles + 1);
-  for (int64_t i = 0; i < num_quantiles; ++i)
-    a[static_cast<size_t>(i)] = static_cast<float>(i + 1) * step;
-  return a;
-}
-
-// QuantileDistribution icdf, linear spline between sorted quantile knots
-// (crossing_method="sort", fp32 like torch). alpha must lie in
-// [alpha_levels.front(), 1); values >= alpha_levels.back() clamp to the last
-// knot (matching _icdf_spline's right-boundary handling).
-float icdf_sorted(const float* q_sorted, const std::vector<float>& alpha, float a) {
-  const int64_t nq = static_cast<int64_t>(alpha.size());
-  if (a < alpha.front())
-    throw std::runtime_error("predict_quantiles: alpha below grid (exp tail not ported)");
-  if (a >= alpha.back()) return q_sorted[nq - 1];
-  // seg = searchsorted(alpha[:-1], a, right=True) - 1, clamped to [0, nq-2]
-  const auto it = std::upper_bound(alpha.begin(), alpha.end() - 1, a);
-  int64_t seg = static_cast<int64_t>(it - alpha.begin()) - 1;
-  seg = std::clamp<int64_t>(seg, 0, nq - 2);
-  const float denom = std::max(alpha[static_cast<size_t>(seg + 1)] -
-                                   alpha[static_cast<size_t>(seg)],
-                               1e-6f);
-  float t = (a - alpha[static_cast<size_t>(seg)]) / denom;
-  t = std::clamp(t, 0.0f, 1.0f);
-  return q_sorted[seg] + t * (q_sorted[seg + 1] - q_sorted[seg]);
-}
-
-}  // namespace
 
 TabICLRegressor::TabICLRegressor(std::shared_ptr<Model> model)
     : TabICLRegressor(std::move(model), EstimatorOptions{}) {}
@@ -149,7 +116,7 @@ void TabICLRegressor::predict_quantiles(const double* X, int64_t n_test,
   auto res = core_->predict_outputs(*model_, X, n_test);
   const int64_t nq = res.out_dim;
   const int64_t n_members = static_cast<int64_t>(res.member_outputs.size());
-  const auto alpha = alpha_levels(nq);
+  const auto alpha = quantile_alpha_levels(nq);
 
   std::vector<double> acc(static_cast<size_t>(n_test * n_alphas), 0.0);
   std::vector<float> qs(static_cast<size_t>(nq));
@@ -158,8 +125,13 @@ void TabICLRegressor::predict_quantiles(const double* X, int64_t n_test,
     for (int64_t r = 0; r < n_test; ++r) {
       std::copy(o.begin() + r * nq, o.begin() + (r + 1) * nq, qs.begin());
       std::sort(qs.begin(), qs.end());
+      // TabICL builds QuantileToDistribution with its defaults, so the tails
+      // are always exponential; fitted once per row, reused for every alpha.
+      const QuantileTails tails =
+          fit_quantile_tails(qs.data(), alpha, TailType::Exp);
       for (int64_t a = 0; a < n_alphas; ++a) {
-        const float v = icdf_sorted(qs.data(), alpha, static_cast<float>(alphas[a]));
+        const float v =
+            quantile_icdf(qs.data(), alpha, tails, static_cast<float>(alphas[a]));
         acc[static_cast<size_t>(r * n_alphas + a)] +=
             static_cast<double>(v) * y_scale_ + y_mean_;
       }

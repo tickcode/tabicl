@@ -7,7 +7,7 @@ KV cache), with no Python or PyTorch at runtime. The math backend is
 fp32).
 
 Numerical parity with the Python package is enforced by an extensive test
-suite (~800k assertions): bit-exact RNG and permutation ports, 1e-9..1e-12
+suite (~850k assertions): bit-exact RNG and permutation ports, 1e-9..1e-12
 preprocessing parity, per-stage transformer parity at 1e-5..5e-4, and
 end-to-end `predict_proba`/`predict` parity at `rtol=atol=1e-4` (the repo's
 established tolerance). Cached and uncached predictions are bitwise identical.
@@ -37,11 +37,14 @@ Supported (parity-tested against the Python implementation):
   versioned GGUF file. Loading reproduces predictions **bitwise**; the file
   records a checkpoint fingerprint and refuses to load against a different
   model. This is a C++-only format (no Python pickle interop).
+- Regressor quantile tails: `predict_quantiles` accepts any level in `(0, 1)`.
+  Levels outside the head's `[0.001, 0.999]` knot grid are extrapolated by the
+  `QuantileDistribution` port in `src/quantile_dist.h` — exponential tails (what
+  `TabICLRegressor` builds, matching `QuantileToDistribution`'s default) and the
+  GPD variant, both parity-tested against Python goldens.
 
 Not (yet) ported: string/categorical input handling, SHAP feature masks,
-fine-tuning/forecast/unsupervised, GPU, v1 checkpoints (interleaved RoPE),
-and the exponential/GPD distribution tails of the regressor (only the
-linear-spline quantile range [0.001, 0.999)).
+fine-tuning/forecast/unsupervised, GPU, and v1 checkpoints (interleaved RoPE).
 
 ## Quick start (no Python required)
 

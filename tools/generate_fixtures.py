@@ -355,6 +355,56 @@ def gen_model_small() -> None:
                               "n_classes": n_classes})
 
 
+def gen_quantile_tails() -> None:
+    """QuantileDistribution.icdf goldens covering both tails and the spline.
+
+    TabICLRegressor only ever builds exp tails (QuantileToDistribution's
+    default), so the gpd goldens are produced by constructing the
+    distribution directly.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+    import torch
+    from tabicl._model.quantile_dist import QuantileDistribution
+
+    group = "quantile_tails"
+    nq = 999
+    # Probability levels spanning the left tail, both knot boundaries
+    # (0.001 / 0.999), the spline interior, and the right tail.
+    alphas = np.array(
+        [1e-6, 1e-4, 5e-4, 9e-4, 0.001, 0.002, 0.01, 0.1, 0.5, 0.9, 0.99,
+         0.998, 0.999, 0.9995, 0.9999, 1 - 1e-6],
+        dtype=np.float64,
+    )
+    save(group, "alphas", alphas)
+
+    rng = np.random.RandomState(31)
+    rows = 6
+    datasets = {
+        # Well-behaved ascending quantiles.
+        "plain": np.sort(rng.randn(rows, nq) * 2.0 + 1.0, axis=1),
+        # Crossing (unsorted) quantiles: the raw shape of the head's output.
+        "raw": rng.randn(rows, nq) * 2.0 + 1.0,
+        # Heavy tails: large |beta|, GPD shape well away from 0.
+        "heavy": np.sort(rng.standard_t(2.5, size=(rows, nq)) * 3.0, axis=1),
+        # Near-constant: exercises the MIN_BETA and degenerate-slope clamps.
+        "flat": np.sort(rng.randn(rows, nq) * 1e-6 + 7.0, axis=1),
+    }
+
+    alpha_t = torch.tensor(alphas, dtype=torch.float32)
+    for name, q in datasets.items():
+        q32 = np.ascontiguousarray(q, dtype=np.float32)
+        save(group, f"{name}_q", q32)
+        # crossing_method="sort" is the model default; storing the sorted knots
+        # lets the C++ side assert its own sort agrees before comparing icdf.
+        save(group, f"{name}_sorted", np.sort(q32, axis=1))
+        for tail in ("exp", "gpd"):
+            dist = QuantileDistribution(torch.from_numpy(q32), tail_type=tail)
+            save(group, f"{name}_{tail}_icdf", dist.icdf(alpha_t).numpy())
+    save_manifest(group, {"n_quantiles": nq, "rows": rows,
+                          "alphas": alphas.tolist(),
+                          "datasets": sorted(datasets)})
+
+
 def gen_e2e() -> None:
     """Full Python fit/predict outputs for end-to-end estimator parity."""
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -397,7 +447,10 @@ def gen_e2e() -> None:
             est = TabICLRegressor(n_estimators=n_est, norm_methods=methods, **common)
             est.fit(Xtr, y)
             save(group, f"{name}_mean", np.asarray(est.predict(Xte), dtype=np.float64))
-            alphas = np.arange(0.1, 0.95, 0.1)
+            # Spans the spline interior plus both extrapolated tails.
+            alphas = np.concatenate(
+                [[1e-4, 5e-4], np.arange(0.1, 0.95, 0.1), [0.9995, 0.9999]]
+            )
             q = est.predict(Xte, output_type="quantiles", alphas=list(alphas))
             save(group, f"{name}_quantiles", np.asarray(q, dtype=np.float64))
             save(group, f"{name}_alphas", alphas)
@@ -414,6 +467,7 @@ SECTIONS = {
     "preprocess_basic": gen_preprocess_basic,
     "normalizers": gen_normalizers,
     "model_small": gen_model_small,
+    "quantile_tails": gen_quantile_tails,
     "e2e": gen_e2e,
 }
 

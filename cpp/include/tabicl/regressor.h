@@ -27,7 +27,8 @@ class TabICLRegressor {
   // Mean prediction (ensemble average), out (n_test).
   void predict(const double* X, int64_t n_test, double* out) const;
 
-  // Quantile predictions for alphas in [0.001, 0.999); out (n_test, n_alphas).
+  // Quantile predictions for alphas in (0, 1); out (n_test, n_alphas). Levels
+  // outside the head's knot grid are extrapolated with exponential tails.
   void predict_quantiles(const double* X, int64_t n_test, const double* alphas,
                          int64_t n_alphas, double* out) const;
 

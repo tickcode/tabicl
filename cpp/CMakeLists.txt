@@ -51,6 +51,7 @@ add_library(tabicl_cpp STATIC
   src/model_forward.cpp
   src/estimator_core.cpp
   src/hierarchical.cpp
+  src/quantile_dist.cpp
   src/classifier.cpp
   src/regressor.cpp
   src/preprocess/pipeline.cpp

@@ -150,10 +150,12 @@ def test_regressor_parity(reg_model):
     est = TabICLRegressor(device="cpu", use_amp=False, use_fa3=False, random_state=42)
     est.fit(Xtr, y)
     mean_ref = np.asarray(est.predict(Xte), dtype=float)
-    alphas = [0.1, 0.5, 0.9]
+    # Spans the spline interior plus both extrapolated tails.
+    alphas = [1e-4, 5e-4, 0.1, 0.5, 0.9, 0.9995, 0.9999]
     q_ref = np.asarray(est.predict(Xte, output_type="quantiles", alphas=alphas))
 
     scale = np.abs(mean_ref).max()
+    q_scale = np.abs(q_ref).max()  # tails reach well beyond the mean
     for cache in ["none", "kv", "repr"]:
         reg = tcpp.Regressor(reg_model, cache=cache, n_threads=8)
         reg.fit(Xtr, y)
@@ -161,5 +163,5 @@ def test_regressor_parity(reg_model):
         np.testing.assert_allclose(mean, mean_ref, rtol=RTOL, atol=ATOL * scale,
                                    err_msg=f"mean cache={cache}")
         q = reg.predict_quantiles(Xte, np.asarray(alphas))
-        np.testing.assert_allclose(q, q_ref, rtol=RTOL, atol=ATOL * scale,
+        np.testing.assert_allclose(q, q_ref, rtol=RTOL, atol=ATOL * q_scale,
                                    err_msg=f"quantiles cache={cache}")

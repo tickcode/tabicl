@@ -9,6 +9,7 @@ add_executable(tabicl_tests
   test_preprocess_basic.cpp
   test_normalizers.cpp
   test_model_stages.cpp
+  test_quantile_tails.cpp
   test_e2e.cpp
   test_cache.cpp
   test_chunking.cpp
